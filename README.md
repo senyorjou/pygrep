@@ -8,7 +8,7 @@ A tool to search inside files
 ## Getting Started
 
 ```
-go run main.go
+go run *.go
 ```
 
 ### Prerequisites

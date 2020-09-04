@@ -61,6 +61,7 @@ func find(re *regexp.Regexp, path string, wg *sync.WaitGroup) {
 }
 
 func main() {
+	const WORKERS = 10
 	root := "."
 	pathsCh := make(chan string)
 
@@ -70,10 +71,15 @@ func main() {
 
 	go getPaths(root, pathsCh)
 
+	sem := make(semaphore, WORKERS)
 	var wg sync.WaitGroup
 	for path := range pathsCh {
+		sem.Acquire()
 		wg.Add(1)
-		go find(re, path, &wg)
+		go func(path string) {
+			find(re, path, &wg)
+			sem.Release()
+		}(path)
 	}
 	wg.Wait()
 }

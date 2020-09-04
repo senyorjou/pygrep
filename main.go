@@ -7,24 +7,23 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
-func getPaths(path string) []string {
-	var paths []string
-
+func getPaths(path string, paths chan<- string) {
 	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			fmt.Printf("Error accessing a path %q: %v\n", path, err)
 			return err
 		}
-		paths = append(paths, path)
+		paths <- path
 		return nil
 	})
 
+	close(paths)
 	if err != nil {
 		fmt.Printf("error walking the path %q: %v\n", ".", err)
 	}
-	return paths
 }
 
 func getLine(contents []byte, loc []int) string {
@@ -43,14 +42,9 @@ func getLine(contents []byte, loc []int) string {
 
 }
 
-func genPaths(paths []string, ch chan string) {
-	for _, path := range paths {
-		ch <- path
-	}
-	close(ch)
-}
+func find(re *regexp.Regexp, path string, wg *sync.WaitGroup) {
 
-func find(re *regexp.Regexp, path string) {
+	defer wg.Done()
 	file, _ := os.Stat(path)
 
 	if !file.IsDir() {
@@ -67,16 +61,19 @@ func find(re *regexp.Regexp, path string) {
 }
 
 func main() {
-	paths := getPaths(".")
-
-	fmt.Printf("Looking at %d files\n", len(paths))
+	root := "."
 	pathsCh := make(chan string)
 
-	var re = regexp.MustCompile(`LOL`)
+	fmt.Printf("Looking at files on %s\n", root)
 
-	go genPaths(paths, pathsCh)
+	re := regexp.MustCompile(`LOL`)
+
+	go getPaths(root, pathsCh)
+
+	var wg sync.WaitGroup
 	for path := range pathsCh {
-		go find(re, path)
+		wg.Add(1)
+		go find(re, path, &wg)
 	}
-
+	wg.Wait()
 }

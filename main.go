@@ -4,26 +4,27 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/karrick/godirwalk"
 )
 
-func getPaths(path string, paths chan<- string) {
-	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			fmt.Printf("Error accessing a path %q: %v\n", path, err)
-			return err
-		}
-		paths <- path
-		return nil
-	})
+type semaphore chan bool
 
+func publishPaths(path string, paths chan<- string) {
+	godirwalk.Walk(path, &godirwalk.Options{
+		Unsorted: true,
+		Callback: func(osPathname string, de *godirwalk.Dirent) error {
+			paths <- osPathname
+			return nil
+		},
+		ErrorCallback: func(osPathname string, err error) godirwalk.ErrorAction {
+			return godirwalk.SkipNode
+		},
+	})
 	close(paths)
-	if err != nil {
-		fmt.Printf("error walking the path %q: %v\n", ".", err)
-	}
 }
 
 func getLine(contents []byte, loc []int) string {
@@ -42,9 +43,8 @@ func getLine(contents []byte, loc []int) string {
 
 }
 
-func find(re *regexp.Regexp, path string, wg *sync.WaitGroup) {
+func find(re *regexp.Regexp, path string) {
 
-	defer wg.Done()
 	file, _ := os.Stat(path)
 
 	if !file.IsDir() {
@@ -69,17 +69,22 @@ func main() {
 
 	re := regexp.MustCompile(`LOL`)
 
-	go getPaths(root, pathsCh)
+	go publishPaths(root, pathsCh)
 
 	sem := make(semaphore, WORKERS)
 	var wg sync.WaitGroup
+	i := 0
 	for path := range pathsCh {
 		sem.Acquire()
 		wg.Add(1)
 		go func(path string) {
-			find(re, path, &wg)
+			find(re, path)
 			sem.Release()
+			wg.Done()
 		}(path)
+		i += 1
 	}
 	wg.Wait()
+
+	fmt.Printf("Scanned %d files\n", i)
 }
